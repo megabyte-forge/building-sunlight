@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="건물과 지형, 창 방향을 반영하는 일조 환경 시뮬레이터">
+  <title>일조 환경 시뮬레이터 · v1.0.0</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+<main>
+  <header><span>일조 환경 시뮬레이터</span><small>v1.0.0</small></header>
+  <div id="loading" role="status">계산 엔진을 불러오는 중입니다. 첫 실행에는 잠시 시간이 걸립니다.</div>
+  <div id="application" inert>
+    <nav class="row"><button id="terrainEdit">지형 편집</button><button id="add">건물 추가(F3)</button><button id="reset">초기화(F5)</button><button id="notices">주의사항</button></nav>
+    <section class="row settings">
+      <label>날짜<input id="dateDisplay" readonly></label>
+      <label>창 방향(자동)<input id="facing" readonly></label>
+      <label>동쪽 X(m)<input id="ox" readonly></label>
+      <label>북쪽 Y(m)<input id="oy" readonly></label>
+      <button id="observerFloor">층수로 입력</button>
+      <label>관측 표고 Z(m)<input id="oz" type="number" step="0.001"></label>
+      <label>재생간격<select id="step"><option value="1">1분</option><option value="5" selected>5분</option><option value="10">10분</option><option value="15">15분</option><option value="30">30분</option><option value="60">1시간</option></select></label>
+      <div class="checks"><label><input id="buildings" type="checkbox" checked>건물 반영</label><label><input id="terrain" type="checkbox" checked>지형 반영</label></div>
+    </section>
+    <section class="row dates"><span>날짜선택</span><button data-season="1">하지</button><button data-season="0">춘추분</button><button data-season="3">동지</button><button id="today" class="selected">오늘</button><span>날짜입력</span><input id="year" placeholder="년도" aria-label="년도" inputmode="numeric"><input id="monthDay" placeholder="월일" aria-label="월일"><button id="applyDate">적용</button></section>
+    <p id="summary" class="summary">가조시간 — | 일조시간 — | 최장연속 —</p>
+    <p id="error" role="alert"></p>
+    <section class="row playback"><button id="play">▶ 재생</button><button id="rewind">시간 리셋(R)</button><span>현재 시각</span><strong id="clock">—</strong><span id="state"></span><span>태양 고도 <b id="altitude">—</b> /　 방위각 <b id="azimuth">—</b></span></section>
+    <section class="plots">
+      <div class="mapPanel"><p>건물·관측점 드래그: 이동 / 휠: 확대·축소</p><strong>N ↑　 (격자 20 × 20 m)</strong><svg id="map" viewBox="0 0 400 400" tabindex="0" aria-label="건물 배치도"></svg></div>
+      <aside><h2>건물 정보</h2><strong id="buildingTitle">건물을 선택하세요</strong><table id="spec"></table><small>위치: [거주 건물] 중심기준<br>단위: m</small><button id="editSelected">선택 건물 수정</button></aside>
+      <div class="skyPanel"><strong>태양 궤적 · 색상: 차폐 원인</strong><div class="row"><label><input type="radio" name="sky" value="auto" checked>최적화</label><label><input type="radio" name="sky" value="90">90도 고정</label></div><svg id="sky" viewBox="0 0 300 400" aria-label="태양 궤적"></svg></div>
+    </section>
+    <p class="guide"><b>단축키</b>: <b>KL</b>: 5분 이동 / <b>，．</b>: 1분 이동</p>
+    <svg id="timeline" viewBox="0 0 960 132" tabindex="0" aria-label="05시부터 21시까지 일조 시간대"></svg>
+    <div id="legend" class="row"></div>
+    <p class="intervalHelp">차폐 시작·종료 · 1분 단위 추정 · 겹치면 가장 가까운 장애물 기준</p>
+    <div class="intervals"><table id="intervalLeft"></table><table id="intervalRight"></table></div>
+  </div>
+  <footer>Building Sunlight · v1.0.0 · 계산은 이 브라우저에서 수행됩니다.</footer>
+</main>
+<dialog id="buildingDialog">
+ <form id="buildingForm">
+  <h2 id="buildingHeading">건물 추가</h2>
+  <div class="buildingEditor">
+   <div>
+    <label class="field">건물 이름<input name="name" required maxlength="60"></label>
+    <label class="field">구분(m)<input name="category" readonly></label>
+    <div class="field">중심 X 거리<span class="coordinate"><button type="button" id="xDir">동</button><input name="x" type="number" min="0" step="0.001" required></span></div>
+    <div class="field">중심 Y 거리<span class="coordinate"><button type="button" id="yDir">남</button><input name="y" type="number" min="0" step="0.001" required></span></div>
+    <label class="field">기초 표고 Z<input name="base" type="number" step="0.001" required></label>
+    <fieldset class="row"><legend>건물 형태</legend><label><input type="radio" name="shape" value="i" checked>I자</label><label><input type="radio" name="shape" value="bars">LT+자</label><label><input type="radio" name="shape" value="y">Y자</label></fieldset>
+    <div class="shapeGrid"><span style="grid-area:1/1">구분(m)</span><span id="horizontalHeading" style="grid-area:1/2">값</span><span class="barsOnly" style="grid-area:1/3">세로바</span>
+     <label for="width" style="grid-area:2/1">동서 폭 X</label><input id="width" name="width" type="number" step="0.001" style="grid-area:2/2"><input class="barsOnly" name="vx" type="number" step="0.001" style="grid-area:2/3">
+     <label for="depth" style="grid-area:3/1">남북 길이 Y</label><input id="depth" name="depth" type="number" step="0.001" style="grid-area:3/2"><input class="barsOnly" name="vy" type="number" step="0.001" style="grid-area:3/3">
+    </div>
+    <label class="field yOnly">가지 두께<input name="thickness" type="number" step="0.001"></label>
+    <fieldset class="row yOnly"><legend>입력방식 (연동×)</legend><label><input type="radio" name="mode" value="bounds" checked>1번</label><label><input type="radio" name="mode" value="triangle">2번</label></fieldset>
+    <label class="field triangleOnly">직사각형 가로<input name="arm" type="number" step="0.001"></label>
+    <label class="field triangleOnly">직사각형 세로<input name="rectDepth" type="number" step="0.001"></label>
+    <div class="barsOnly"><div class="field">가지위치 X / Y<span class="coordinate"><input name="dx" type="number" step="0.001"><input name="dy" type="number" step="0.001"></span></div><div id="presets" class="presets"></div></div>
+    <div class="field">높이 Z<span class="row"><input name="height" type="number" min="0.001" step="0.001" required><button type="button" id="buildingFloor">층수로 입력</button></span></div>
+   </div>
+   <div><svg id="preview" viewBox="0 0 240 240"></svg><label class="field">회전각<input name="rotation" type="number" step="0.1"></label><div class="row"><button type="button" data-turn="-90">↶ 90°</button><button type="button" data-turn="-15">↶ 15°</button><button type="button" data-turn="15">15° ↷</button><button type="button" data-turn="90">90° ↷</button></div></div>
+  </div>
+  <p class="dialogError" role="alert"></p><div class="actions"><button type="button" id="saveBuilding">확인<br>(Shift+Enter)</button><button type="button" data-close>취소<br>(Esc)</button></div>
+ </form>
+</dialog>
+<dialog id="floorDialog"><h2>층수로 입력</h2><label class="field">관측 대상의 층<input id="floorNumber" type="number" step="0.5" value="12"></label><label class="field">층고(m)<input id="floorHeight" type="number" step="0.001" value="2.7"></label><label class="field">천장고(m)<input id="ceiling" type="number" step="0.001" value="2.3"></label><label class="field">계산된 표고(m)<input id="floorResult" readonly></label><p id="floorNotice" class="dialogError"></p><p>반지하는 0.5층을 입력하세요.</p><button id="floorReset">초기화(F5)</button><div class="actions"><button id="floorApply">반영<br>(Shift+Enter)</button><button data-close>취소<br>(Esc)</button></div></dialog>
+<dialog id="terrainDialog"><h2>지형 편집</h2><div class="terrainEditor"><div><svg id="terrainMap" viewBox="0 0 400 400"></svg><p>점을 클릭해 선택 · Shift+클릭: 여러 점 선택</p><div class="row"><button id="allTerrain">전체 선택</button><button id="clearTerrain">선택 해제</button></div><label class="field">선택한 점 표고 Z<input id="terrainZ" type="number" step="0.001"></label></div><div><h3>새 지형 만들기</h3><label class="field">지형<select id="terrainKind"><option value="flat">평지</option><option value="south" selected>남쪽 언덕</option><option value="north">북쪽 언덕</option><option value="east">동쪽 언덕</option><option value="west">서쪽 언덕</option></select></label><label class="field">동서 폭<input id="terrainWidth" type="number" value="1200"></label><label class="field">남북 길이<input id="terrainDepth" type="number" value="1200"></label><label class="field">격자 수<select id="terrainCells"><option>4</option><option>8</option><option>12</option></select></label><label class="field">평지 표고<input id="terrainLow" type="number" value="0"></label><label class="field">언덕 표고<input id="terrainHigh" type="number" value="110"></label><small>입력을 멈춘 뒤 0.5초 후 미리보기에 반영합니다.</small></div></div><p class="dialogError" role="alert"></p><div class="actions"><button id="terrainReset">초기화<br>(F5)</button><button id="terrainApply">적용<br>(Shift+Enter)</button><button data-close>취소<br>(Esc)</button></div></dialog>
+<dialog id="noticeDialog"><h2>주의사항</h2><ol><li>건물·지형·창 방향을 반영한 직사광 가능 시간입니다. 구름·반사광·실내 채광은 포함하지 않습니다.</li><li>가상 예제 · 서울 위도 / 실제 지형 아님 | 위도 37.5665, 경도 126.978 | UTC+9</li><li>Z와 건물 기초 표고는 동일 기준입니다. 관측점은 외벽 바깥에 설정하며, 입력 범위 밖 장애물은 계산되지 않습니다.</li><li>각 건물의 떨어진 거리는, 거주 건물의 중심에서 해당 건물의 중심까지의 거리를 나타냅니다.</li><li>1분 단위 기하학적 태양 위치를 사용합니다. 대기굴절·태양 반지름과 실측 오차는 반영하지 않습니다. 결과는 법적 일조 판정이 아닙니다.</li><li>수정한 배치는 새로고침하면 초기화됩니다. 처음 접속할 때 외부 CDN에서 Python 실행 환경을 내려받습니다.</li></ol><div class="actions"><button data-close>닫기(Esc)</button></div></dialog>
+</body></html>
